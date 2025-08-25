@@ -1,0 +1,30 @@
+{
+  "name": "dash-org-core-download-check",
+  "version": "1.0.0",
+  "description": "Automated testing suite for Dash Core download links on dash.org",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "test:report": "playwright show-report",
+    "install:browsers": "playwright install",
+    "install:deps": "playwright install-deps"
+  },
+  "keywords": [
+    "dash",
+    "core",
+    "download",
+    "testing",
+    "playwright",
+    "ci"
+  ],
+  "author": "Dash Core Team",
+  "license": "MIT",
+  "devDependencies": {
+    "@playwright/test": "^1.40.0"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
