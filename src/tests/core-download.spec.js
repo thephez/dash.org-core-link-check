@@ -1,6 +1,8 @@
 const { test, expect } = require('@playwright/test');
 const { execSync } = require('child_process');
 const fs = require('fs');
+const os = require('os');
+const path = require('path');
 
 test.describe('Dash Core Download Links', () => {
   test('should verify all Dash Core download links are accessible', async ({ page }) => {
@@ -155,50 +157,69 @@ test.describe('Dash Core Download Links', () => {
 
   test('should verify GPG signature of release files', async ({ page, browserName }) => {
     test.skip(browserName !== 'chromium', 'GPG verification only needs to run on one browser');
+    test.setTimeout(5 * 60 * 1000); // 5 minutes for GPG verification and downloads
     
     console.log('Starting GPG signature verification...');
     
     try {
-      // Download pasta's public key from keybase
-      console.log('Downloading GPG public key from keybase...');
-      const keyResponse = await page.request.get('https://keybase.io/pasta/pgp_keys.asc');
-      expect(keyResponse.status()).toBe(200);
-      
-      const keyContent = await keyResponse.text();
-      fs.writeFileSync('/tmp/pasta-key.asc', keyContent);
-      console.log('GPG key downloaded and saved');
-      
-      // Import the key
-      console.log('Importing GPG key...');
-      execSync('gpg --import /tmp/pasta-key.asc 2>/dev/null', { stdio: 'pipe' });
-      console.log('GPG key imported successfully');
+      // Check if key is already imported, if not download and import it
+      console.log('Checking if GPG key is already imported...');
+      let keyPath;
+      try {
+        const keyCheck = execSync('gpg --list-keys pasta 2>/dev/null', { encoding: 'utf8' });
+        if (keyCheck.includes('pasta')) {
+          console.log('GPG key already imported, skipping download and import');
+        } else {
+          throw new Error('Key not found');
+        }
+      } catch (error) {
+        console.log('GPG key not found, downloading from keybase...');
+        const keyResponse = await page.request.get('https://keybase.io/pasta/pgp_keys.asc', {
+          timeout: 30000 // 30 seconds
+        });
+        expect(keyResponse.status()).toBe(200);
+        
+        const keyContent = await keyResponse.text();
+        keyPath = path.join(os.tmpdir(), 'pasta-key.asc');
+        fs.writeFileSync(keyPath, keyContent);
+        console.log('GPG key downloaded and saved');
+        
+        console.log('Importing GPG key...');
+        execSync(`gpg --import "${keyPath}" 2>/dev/null`, { stdio: 'pipe' });
+        console.log('GPG key imported successfully');
+      }
       
       // Get latest release to find current version
       console.log('Finding latest release version...');
-      await page.goto('https://github.com/dashpay/dash/releases/latest');
-      const url = page.url();
-      const versionMatch = url.match(/tag\/(v[\d.]+)/);
-      expect(versionMatch).toBeTruthy();
+      const releaseResponse = await page.request.get('https://api.github.com/repos/dashpay/dash/releases/latest', {
+        timeout: 30000 // 30 seconds
+      });
+      expect(releaseResponse.status()).toBe(200);
       
-      const version = versionMatch[1];
+      const releaseData = await releaseResponse.json();
+      const version = releaseData.tag_name;
+      expect(version).toBeTruthy();
       console.log(`Found latest version: ${version}`);
       
       // Download SHA256SUMS.asc (clearsigned message)
       const baseUrl = `https://github.com/dashpay/dash/releases/download/${version}`;
       console.log(`Downloading SHA256SUMS.asc from ${baseUrl}...`);
       
-      const sigResponse = await page.request.get(`${baseUrl}/SHA256SUMS.asc`);
+      const sigResponse = await page.request.get(`${baseUrl}/SHA256SUMS.asc`, {
+        timeout: 30000 // 30 seconds
+      });
       expect(sigResponse.status()).toBe(200);
       
       // Save clearsigned file
       const sigContent = await sigResponse.text();
-      fs.writeFileSync('/tmp/SHA256SUMS.asc', sigContent);
+      const sha256Path = path.join(os.tmpdir(), 'SHA256SUMS.asc');
+      fs.writeFileSync(sha256Path, sigContent);
       console.log('SHA256SUMS.asc downloaded and saved');
       
       // Verify clearsigned message (no separate file needed)
       console.log('Verifying GPG signature...');
       try {
-        const result = execSync('gpg --verify /tmp/SHA256SUMS.asc 2>&1', { encoding: 'utf8' });
+        const result = execSync(`gpg --verify "${sha256Path}" 2>&1`, { encoding: 'utf8' });
         console.log('GPG verification output:', result);
         expect(result).toContain('Good signature');
         console.log('✓ GPG signature verified successfully');
@@ -224,20 +245,27 @@ test.describe('Dash Core Download Links', () => {
           console.log(`Checking signature for ${binary}...`);
           
           // Download binary and its signature
-          const binaryResponse = await page.request.get(`${baseUrl}/${binary}`);
-          const binarySignatureResponse = await page.request.get(`${baseUrl}/${binary}.asc`);
+          const binaryResponse = await page.request.get(`${baseUrl}/${binary}`, {
+            timeout: 120000 // 2 minutes for large binary files
+          });
+          const binarySignatureResponse = await page.request.get(`${baseUrl}/${binary}.asc`, {
+            timeout: 30000 // 30 seconds for signature files
+          });
           
           if (binaryResponse.status() === 200 && binarySignatureResponse.status() === 200) {
             // Save binary and signature
             const binaryContent = await binaryResponse.body();
             const signatureContent = await binarySignatureResponse.text();
             
-            fs.writeFileSync(`/tmp/${binary}`, binaryContent);
-            fs.writeFileSync(`/tmp/${binary}.asc`, signatureContent);
+            const binaryPath = path.join(os.tmpdir(), binary);
+            const signaturePath = path.join(os.tmpdir(), `${binary}.asc`);
+            
+            fs.writeFileSync(binaryPath, binaryContent);
+            fs.writeFileSync(signaturePath, signatureContent);
             
             // Verify signature
             try {
-              const result = execSync(`gpg --verify /tmp/${binary}.asc /tmp/${binary} 2>&1`, { encoding: 'utf8' });
+              const result = execSync(`gpg --verify "${signaturePath}" "${binaryPath}" 2>&1`, { encoding: 'utf8' });
               expect(result).toContain('Good signature');
               console.log(`✓ ${binary} signature verified successfully`);
               verifiedCount++;
@@ -249,8 +277,8 @@ test.describe('Dash Core Download Links', () => {
             }
             
             // Clean up binary files immediately to save space
-            fs.unlinkSync(`/tmp/${binary}`);
-            fs.unlinkSync(`/tmp/${binary}.asc`);
+            fs.unlinkSync(binaryPath);
+            fs.unlinkSync(signaturePath);
           } else {
             console.log(`⚠ Skipping ${binary} - not found (${binaryResponse.status()}, ${binarySignatureResponse.status()})`);
           }
@@ -264,8 +292,13 @@ test.describe('Dash Core Download Links', () => {
     } finally {
       // Clean up temp files
       try {
-        fs.unlinkSync('/tmp/pasta-key.asc');
-        fs.unlinkSync('/tmp/SHA256SUMS.asc');
+        const sha256Path = path.join(os.tmpdir(), 'SHA256SUMS.asc');
+        fs.unlinkSync(sha256Path);
+        
+        // Only clean up key file if we downloaded it
+        if (keyPath) {
+          fs.unlinkSync(keyPath);
+        }
       } catch (e) {
         // Files might not exist, ignore cleanup errors
       }

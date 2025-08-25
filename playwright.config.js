@@ -21,20 +21,7 @@ module.exports = defineConfig({
     actionTimeout: 10000
   },
 
-  projects: process.env.CI ? [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-    {
-      name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
-    },
-    {
-      name: 'webkit',
-      use: { ...devices['Desktop Safari'] },
-    }
-  ] : [
+  projects: [
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
