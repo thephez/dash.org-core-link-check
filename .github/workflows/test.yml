@@ -113,6 +113,15 @@ jobs:
               echo "#### Failed Tests ($BROWSER)" >> $GITHUB_STEP_SUMMARY
               jq -r '.suites[].specs[] | select(.tests[].results[].status == "failed") | "- " + .title' "$file" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
+              
+              echo "#### Validation Errors ($BROWSER)" >> $GITHUB_STEP_SUMMARY
+              jq -r '.suites[].specs[].tests[] | select(.results[].status == "failed") | .results[] | select(.status == "failed") | "- **" + (.error.message // "Unknown error") + "**"' "$file" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              
+              # Extract specific link failures from error messages
+              echo "#### Failed Links ($BROWSER)" >> $GITHUB_STEP_SUMMARY
+              jq -r '.suites[].specs[].tests[] | select(.results[].status == "failed") | .results[] | select(.status == "failed") | .error.message // ""' "$file" | grep -oE 'https?://[^\s]+' | sort -u | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY || echo "- No specific link failures found" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
             fi
           fi
         done
@@ -120,50 +129,3 @@ jobs:
         echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
         echo "- HTML reports are available in the artifacts section" >> $GITHUB_STEP_SUMMARY
         echo "- JSON test results are included for programmatic processing" >> $GITHUB_STEP_SUMMARY
-
-  notify-failure:
-    if: failure() && github.event_name == 'schedule'
-    needs: test
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Create Issue on Failure
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const title = `🚨 Dash Core Download Links Check Failed - ${new Date().toISOString().split('T')[0]}`;
-          const body = `
-          The scheduled Dash Core download links check has failed.
-          
-          **Workflow Run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          **Date**: ${new Date().toISOString()}
-          **Branch**: ${{ github.ref }}
-          
-          Please investigate the failing download links and update them as necessary.
-          
-          This issue was automatically created by the GitHub Actions workflow.
-          `;
-          
-          // Check if there's already an open issue for today
-          const issues = await github.rest.issues.listForRepo({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            state: 'open',
-            labels: ['automated', 'download-check', 'bug']
-          });
-          
-          const today = new Date().toISOString().split('T')[0];
-          const existingIssue = issues.data.find(issue => 
-            issue.title.includes('Download Links Check Failed') && 
-            issue.title.includes(today)
-          );
-          
-          if (!existingIssue) {
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: title,
-              body: body,
-              labels: ['automated', 'download-check', 'bug']
-            });
-          }
