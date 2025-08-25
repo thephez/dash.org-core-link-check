@@ -44,6 +44,12 @@ jobs:
     - name: Install dependencies
       run: npm ci
 
+    - name: Cache Playwright browser downloads
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ms-playwright-download
+        key: playwright-download-${{ runner.os }}
+
     - name: Install Playwright Browsers
       run: npx playwright install --with-deps ${{ matrix.browser }}
 
