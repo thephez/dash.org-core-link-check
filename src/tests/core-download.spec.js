@@ -304,4 +304,129 @@ test.describe('Dash Core Download Links', () => {
       }
     }
   });
+
+  test('should verify dash.org shows latest version and signature links work', async ({ page }) => {
+    console.log('Starting dash.org version currency validation...');
+    
+    // Get latest version from GitHub API
+    console.log('Getting latest version from GitHub...');
+    const releaseResponse = await page.request.get('https://api.github.com/repos/dashpay/dash/releases/latest', {
+      timeout: 30000
+    });
+    expect(releaseResponse.status()).toBe(200);
+    
+    const releaseData = await releaseResponse.json();
+    const latestVersion = releaseData.tag_name;
+    console.log(`Latest GitHub version: ${latestVersion}`);
+    
+    // Go to dash.org download page
+    await page.goto('/download/');
+    await page.waitForLoadState('networkidle');
+    
+    // Find all download links on the page
+    const downloadLinks = await page.locator('a[href*="dashpay/dash/releases/download"]').all();
+    console.log(`Found ${downloadLinks.length} download links on dash.org`);
+    
+    expect(downloadLinks.length).toBeGreaterThan(0);
+    
+    let versionReport = {
+      latestVersion,
+      dashOrgVersions: [],
+      allMatch: true,
+      signatureChecks: []
+    };
+    
+    for (let i = 0; i < downloadLinks.length; i++) {
+      const link = downloadLinks[i];
+      const href = await link.getAttribute('href');
+      const text = await link.textContent();
+      
+      if (href) {
+        console.log(`Checking: ${text?.trim()} -> ${href}`);
+        
+        // Extract version from dash.org URL
+        const versionMatch = href.match(/\/v?([\d.]+)\//);
+        if (versionMatch) {
+          const dashOrgVersion = 'v' + versionMatch[1];
+          versionReport.dashOrgVersions.push({ link: text?.trim(), version: dashOrgVersion, href });
+          
+          // Critical check: is dash.org showing the latest version?
+          if (dashOrgVersion !== latestVersion) {
+            versionReport.allMatch = false;
+            console.error(`❌ OUTDATED: ${text?.trim()} points to ${dashOrgVersion}, but latest is ${latestVersion}`);
+          } else {
+            console.log(`✅ CURRENT: ${text?.trim()} points to latest version ${dashOrgVersion}`);
+          }
+          
+          // Verify the link works
+          const response = await page.request.head(href, { timeout: 30000 });
+          expect(response.status()).toBeGreaterThanOrEqual(200);
+          expect(response.status()).toBeLessThan(400);
+          
+          // Check for corresponding signature link
+          // If the link is already a signature (.asc), verify it exists
+          // If it's a binary, check for binary + .asc
+          let expectedSigUrl;
+          if (href.endsWith('.asc')) {
+            expectedSigUrl = href; // Already a signature file
+            console.log(`Checking existing signature: ${expectedSigUrl}`);
+          } else {
+            expectedSigUrl = href + '.asc'; // Add .asc for binary files
+            console.log(`Checking corresponding signature: ${expectedSigUrl}`);
+          }
+          
+          try {
+            const sigResponse = await page.request.head(expectedSigUrl, { timeout: 30000 });
+            const sigExists = sigResponse.status() >= 200 && sigResponse.status() < 400;
+            
+            versionReport.signatureChecks.push({
+              binaryUrl: href,
+              signatureUrl: expectedSigUrl,
+              exists: sigExists,
+              status: sigResponse.status()
+            });
+            
+            if (sigExists) {
+              console.log(`✅ Signature exists: ${expectedSigUrl}`);
+            } else {
+              console.error(`❌ Signature missing: ${expectedSigUrl} (${sigResponse.status()})`);
+            }
+            
+            expect(sigExists, `Signature file should exist: ${expectedSigUrl}`).toBeTruthy();
+          } catch (error) {
+            console.error(`❌ Signature check failed: ${expectedSigUrl} - ${error.message}`);
+            throw error;
+          }
+        }
+      }
+    }
+    
+    // Generate validation report
+    console.log('\n=== DASH.ORG VALIDATION REPORT ===');
+    console.log(`Latest GitHub Release: ${versionReport.latestVersion}`);
+    console.log(`All versions current: ${versionReport.allMatch ? '✅ YES' : '❌ NO'}`);
+    
+    console.log('\nDownload Links Found:');
+    versionReport.dashOrgVersions.forEach(item => {
+      const status = item.version === latestVersion ? '✅' : '❌ OUTDATED';
+      console.log(`  ${item.link}: ${item.version} ${status}`);
+    });
+    
+    console.log('\nSignature Validation:');
+    versionReport.signatureChecks.forEach(check => {
+      const status = check.exists ? '✅' : '❌';
+      console.log(`  ${check.binaryUrl.split('/').pop()}: ${status}`);
+    });
+    
+    // Critical assertion: all versions must match latest
+    expect(versionReport.allMatch, 
+      `dash.org is showing outdated versions! Found: ${versionReport.dashOrgVersions.map(v => v.version).join(', ')}, Expected: ${latestVersion}`
+    ).toBeTruthy();
+    
+    // All signatures must exist
+    const missingSignatures = versionReport.signatureChecks.filter(c => !c.exists);
+    expect(missingSignatures.length).toBe(0);
+    
+    console.log('\n✅ All dash.org download links point to latest version with valid signatures!');
+  });
 });
