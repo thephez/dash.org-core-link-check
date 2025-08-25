@@ -183,28 +183,22 @@ test.describe('Dash Core Download Links', () => {
       const version = versionMatch[1];
       console.log(`Found latest version: ${version}`);
       
-      // Download SHA256SUMS and its signature
+      // Download SHA256SUMS.asc (clearsigned message)
       const baseUrl = `https://github.com/dashpay/dash/releases/download/${version}`;
-      console.log(`Downloading SHA256SUMS files from ${baseUrl}...`);
+      console.log(`Downloading SHA256SUMS.asc from ${baseUrl}...`);
       
-      const sha256Response = await page.request.get(`${baseUrl}/SHA256SUMS`);
       const sigResponse = await page.request.get(`${baseUrl}/SHA256SUMS.asc`);
-      
-      expect(sha256Response.status()).toBe(200);
       expect(sigResponse.status()).toBe(200);
       
-      // Save files
-      const sha256Content = await sha256Response.text();
+      // Save clearsigned file
       const sigContent = await sigResponse.text();
-      
-      fs.writeFileSync('/tmp/SHA256SUMS', sha256Content);
       fs.writeFileSync('/tmp/SHA256SUMS.asc', sigContent);
-      console.log('SHA256SUMS files downloaded and saved');
+      console.log('SHA256SUMS.asc downloaded and saved');
       
-      // Verify signature
+      // Verify clearsigned message (no separate file needed)
       console.log('Verifying GPG signature...');
       try {
-        const result = execSync('gpg --verify /tmp/SHA256SUMS.asc /tmp/SHA256SUMS 2>&1', { encoding: 'utf8' });
+        const result = execSync('gpg --verify /tmp/SHA256SUMS.asc 2>&1', { encoding: 'utf8' });
         console.log('GPG verification output:', result);
         expect(result).toContain('Good signature');
         console.log('✓ GPG signature verified successfully');
@@ -271,7 +265,6 @@ test.describe('Dash Core Download Links', () => {
       // Clean up temp files
       try {
         fs.unlinkSync('/tmp/pasta-key.asc');
-        fs.unlinkSync('/tmp/SHA256SUMS');
         fs.unlinkSync('/tmp/SHA256SUMS.asc');
       } catch (e) {
         // Files might not exist, ignore cleanup errors
