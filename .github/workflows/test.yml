@@ -9,11 +9,11 @@ on:
       browser:
         description: 'Browser to test with (chromium, firefox, webkit, all)'
         required: false
-        default: 'all'
+        default: 'chromium'
         type: choice
         options:
-        - all
         - chromium
+        - all
         - firefox
         - webkit
   push:
@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        browser: ${{ github.event.inputs.browser == 'all' && fromJSON('["chromium", "firefox", "webkit"]') || github.event.inputs.browser && fromJSON(format('["{0}"]', github.event.inputs.browser)) || fromJSON('["chromium", "firefox", "webkit"]') }}
+        browser: ${{ github.event.inputs.browser == 'all' && fromJSON('["chromium", "firefox", "webkit"]') || github.event.inputs.browser && fromJSON(format('["{0}"]', github.event.inputs.browser)) || fromJSON('["chromium"]') }}
     
     name: Test on ${{ matrix.browser }}
     
