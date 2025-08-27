@@ -89,11 +89,6 @@ jobs:
       run: |
         echo "# Dash Core Download Links Test Results" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "## Test Summary" >> $GITHUB_STEP_SUMMARY
-        
-        # Count total test files
-        TOTAL_REPORTS=$(find artifacts/ -name "results.json" | wc -l)
-        echo "- Total browser configurations tested: $TOTAL_REPORTS" >> $GITHUB_STEP_SUMMARY
         
         # Process each results file
         for file in artifacts/*/results.json; do
@@ -103,29 +98,59 @@ jobs:
             PASSED_TESTS=$(jq '.stats.expected' "$file")
             FAILED_TESTS=$(jq '.stats.unexpected' "$file")
             
-            echo "### $BROWSER Results" >> $GITHUB_STEP_SUMMARY
-            echo "- Total: $TOTAL_TESTS" >> $GITHUB_STEP_SUMMARY
-            echo "- Passed: $PASSED_TESTS" >> $GITHUB_STEP_SUMMARY
-            echo "- Failed: $FAILED_TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "## $BROWSER Results" >> $GITHUB_STEP_SUMMARY
+            echo "**Tests:** $PASSED_TESTS/$TOTAL_TESTS passed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract validation report from test output
+            echo "### Dash.org Validation Report" >> $GITHUB_STEP_SUMMARY
+            
+            # Get latest version and currency status
+            LATEST_VERSION=$(jq -r '.suites[0].suites[0].specs[].tests[].results[].stdout[].text' "$file" | grep "Latest GitHub Release:" | cut -d: -f2 | xargs)
+            ALL_CURRENT=$(jq -r '.suites[0].suites[0].specs[].tests[].results[].stdout[].text' "$file" | grep "All versions current:" | cut -d: -f2 | xargs)
+            
+            if [ -n "$LATEST_VERSION" ]; then
+              echo "**Latest Version:** $LATEST_VERSION" >> $GITHUB_STEP_SUMMARY
+            fi
+            if [ -n "$ALL_CURRENT" ]; then
+              echo "**Version Currency:** $ALL_CURRENT" >> $GITHUB_STEP_SUMMARY
+            fi
+            echo "" >> $GITHUB_STEP_SUMMARY
+            
+            # Extract download links and add OS info
+            echo "**Download Links:**" >> $GITHUB_STEP_SUMMARY
+            jq -r '.suites[0].suites[0].specs[].tests[].results[].stdout[].text' "$file" | \
+            grep "Checking:" | grep -v ".asc" | \
+            while read -r line; do
+              filename=$(echo "$line" | sed -n 's/.*\/\([^/]*\)$/\1/p')
+              
+              # Determine OS from filename
+              if echo "$filename" | grep -q "win64"; then
+                OS="Windows x64"
+              elif echo "$filename" | grep -q "x86_64-apple-darwin"; then
+                OS="macOS Intel"
+              elif echo "$filename" | grep -q "arm64-apple-darwin"; then
+                OS="macOS ARM"
+              elif echo "$filename" | grep -q "x86_64-linux-gnu"; then
+                OS="Linux x64"
+              elif echo "$filename" | grep -q "aarch64-linux-gnu"; then
+                OS="Linux ARM64"
+              else
+                OS="Unknown"
+              fi
+              
+              echo "- **$OS**: ✅" >> $GITHUB_STEP_SUMMARY
+            done
+            
             echo "" >> $GITHUB_STEP_SUMMARY
             
             if [ "$FAILED_TESTS" -gt 0 ]; then
-              echo "#### Failed Tests ($BROWSER)" >> $GITHUB_STEP_SUMMARY
+              echo "### ❌ Failed Tests" >> $GITHUB_STEP_SUMMARY
               jq -r '.suites[].specs[] | select(.tests[].results[].status == "failed") | "- " + .title' "$file" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              
-              echo "#### Validation Errors ($BROWSER)" >> $GITHUB_STEP_SUMMARY
-              jq -r '.suites[].specs[].tests[] | select(.results[].status == "failed") | .results[] | select(.status == "failed") | "- **" + (.error.message // "Unknown error") + "**"' "$file" >> $GITHUB_STEP_SUMMARY
-              echo "" >> $GITHUB_STEP_SUMMARY
-              
-              # Extract specific link failures from error messages
-              echo "#### Failed Links ($BROWSER)" >> $GITHUB_STEP_SUMMARY
-              jq -r '.suites[].specs[].tests[] | select(.results[].status == "failed") | .results[] | select(.status == "failed") | .error.message // ""' "$file" | grep -oE 'https?://[^\s]+' | sort -u | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY || echo "- No specific link failures found" >> $GITHUB_STEP_SUMMARY
               echo "" >> $GITHUB_STEP_SUMMARY
             fi
           fi
         done
         
-        echo "## Artifacts" >> $GITHUB_STEP_SUMMARY
-        echo "- HTML reports are available in the artifacts section" >> $GITHUB_STEP_SUMMARY
-        echo "- JSON test results are included for programmatic processing" >> $GITHUB_STEP_SUMMARY
+        echo "---" >> $GITHUB_STEP_SUMMARY
+        echo "*HTML reports available in artifacts*" >> $GITHUB_STEP_SUMMARY
